@@ -15,6 +15,8 @@
 
 //This will enable our Character class to recognize the projectile's type and spawn it.
 #include "ThirdPersonMPProjectile.h"
+
+
 //////////////////////////////////////////////////////////////////////////
 // AThirdPersonMPCharacter
 
@@ -55,7 +57,6 @@ AThirdPersonMPCharacter::AThirdPersonMPCharacter()
 	//Initialize the player's Health. Any time a new copy of this Character is created, its current health will be set to its maximum health value.
 	MaxHealth = 100.0f;
 	CurrentHealth = MaxHealth;
-
 
 	//These will initialize the variables necessary to handle firing the projectile.
 	//Initialize projectile class
@@ -168,6 +169,42 @@ void AThirdPersonMPCharacter::GetLifetimeReplicatedProps(TArray <FLifetimeProper
 	DOREPLIFETIME(AThirdPersonMPCharacter, CurrentHealth);
 }
 
+
+//StartFire is the function that players call on their local machine in order to initiate the firing process, and it restricts how often the user is allowed to call HandleFire based on the following criteria :
+//The user cannot fire a projectile if they are already in the middle of firing.This is designated with bFiringWeapon, which is set to true when StartFire is called.
+//bFiringWeapon is only set to false when StopFire is called.
+//StopFire is called when a timer with a length of FireRate finishes.
+//This means that when the user fires a projectile, they must wait a number of seconds equal to FireRate before they can fire again.This will function consistently regarldess of what kind of input StartFire is bound to.For example, if the user binds the "Fire" command to a scroll wheel or similarly inappropriate input, or if they mash the button repeatedly, this function will still execute at an acceptable interval of time and not overflow the user's queue for reliable functions with calls to HandleFire.
+//Because HandleFire is a Server RPC, its implementation in the CPP file must have the suffix _Implementation added to the function name.Our implementation here uses the Character's Control Rotation to get the direction that the camera is facing, then spawn the projectile facing in that direction, enabling the player to aim. The projectile's Projectile Movement Component then handles moving it in that direction.
+
+void AThirdPersonMPCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
+	{
+		bIsFiringWeapon = true;
+		UWorld* World = GetWorld();
+		World->GetTimerManager().SetTimer(FiringTimer, this, &AThirdPersonMPCharacter::StopFire, FireRate, false);
+		HandleFire();
+	}
+}
+
+void AThirdPersonMPCharacter::StopFire()
+{
+	bIsFiringWeapon = false;
+}
+
+void AThirdPersonMPCharacter::HandleFire_Implementation()
+{
+	FVector spawnLocation = GetActorLocation() + (GetControlRotation().Vector() * 100.0f) + (GetActorUpVector() * 50.0f);
+	FRotator spawnRotation = GetControlRotation();
+
+	FActorSpawnParameters spawnParameters;
+	spawnParameters.Instigator = Instigator;
+	spawnParameters.Owner = this;
+
+	AThirdPersonMPProjectile* spawnedProjectile = GetWorld()->SpawnActor<AThirdPersonMPProjectile>(spawnLocation, spawnRotation, spawnParameters);
+}
+
 //We will be using this function to perform updates in response to changes to the player's CurrentHealth. Currently its functionality is limited to onscreen debug messages, but additional functionality could be added, like an OnDeath function that is called on all machines in order to trigger a death animation. Note that OnHealthUpdate is not replicated, and we will need to manually call it on all devices.
 void AThirdPersonMPCharacter::OnHealthUpdate()
 {
@@ -205,7 +242,6 @@ void AThirdPersonMPCharacter::OnRep_CurrentHealth()
 
 
 //SetCurrentHealth provides a controlled means of modifying the player's CurrentHealth from outside of AThirdPersonMPCharacter. It is not a replicated function, but by checking that the Network Role of the Actor is ROLE_Authority, we restrict this function to execute only if it is called on the server that is hosting the game. It clamps CurrentHealth to values between 0 and the player's MaxHealth, making it impossible to set CurrentHealth to an invalid value, and it also calls OnHealthUpdate to ensure that the server and clients both have parallel calls to this function. This is necessary because the server will not receive the RepNotify.
-
 //While "setter" functions like this are not necessary for every variable, they are preferable for sensitive gameplay variables that change frequently during play, especially if they can be modified by many different sources.This is a best - practice for single - player and multiplayer games alike, as it makes live changes to these variables more consistent, easier to debug, and easier to extend with new functionality.
 void AThirdPersonMPCharacter::SetCurrentHealth(float healthValue)
 {
@@ -226,30 +262,3 @@ float AThirdPersonMPCharacter::TakeDamage(float DamageTaken, struct FDamageEvent
 }
 
 
-void AThirdPersonMPCharacter::StartFire()
-{
-	if (!bIsFiringWeapon)
-	{
-		bIsFiringWeapon = true;
-		UWorld* World = GetWorld();
-		World->GetTimerManager().SetTimer(FiringTimer, this, &AThirdPersonMPCharacter::StopFire, FireRate, false);
-		HandleFire();
-	}
-}
-
-void AThirdPersonMPCharacter::StopFire()
-{
-	bIsFiringWeapon = false;
-}
-
-void AThirdPersonMPCharacter::HandleFire_Implementation()
-{
-	FVector spawnLocation = GetActorLocation() + (GetControlRotation().Vector() * 100.0f) + (GetActorUpVector() * 50.0f);
-	FRotator spawnRotation = GetControlRotation();
-
-	FActorSpawnParameters spawnParameters;
-	spawnParameters.Instigator = Instigator;
-	spawnParameters.Owner = this;
-
-	AThirdPersonMPProjectile* spawnedProjectile = GetWorld()->SpawnActor<AThirdPersonMPProjectile>(spawnLocation, spawnRotation, spawnParameters);
-}

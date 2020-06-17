@@ -19,6 +19,7 @@ class AThirdPersonMPCharacter : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	class UCameraComponent* FollowCamera;
 public:
+	/** Constructor */
 	AThirdPersonMPCharacter();
 
 	/** Property replication */
@@ -33,8 +34,26 @@ public:
 	float BaseLookUpRate;
 
 
+
+protected:
+	/** The player's maximum health. This is the highest that their health can be, and the value that their health starts at when spawned.*/
+	UPROPERTY(EditDefaultsOnly, Category = "Health")
+		float MaxHealth;
+
+	/** The player's current health. When reduced to 0, they are considered dead.*/
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentHealth)
+		float CurrentHealth;
+
+	/** RepNotify for changes made to current health.*/
+	UFUNCTION()
+		void OnRep_CurrentHealth();
+
+	/** Response to health being updated. Called on the server immediately after modification, and on clients in response to a RepNotify*/
+	void OnHealthUpdate();
+
 	//The GetMaxHealth and GetCurrentHealth functions provide getters that can access the player's health values from outside of AThirdPersonMPCharacter, both in C++ and in Blueprint. As const functions they provide a safe means of getting these values without allowing them to be modified. We are also declaring functions for setting the player's health and taking damage.
 
+public: 
 	/** Getter for Max Health.*/
 	UFUNCTION(BlueprintPure, Category = "Health")
 	FORCEINLINE float GetMaxHealth() const { return MaxHealth; }
@@ -51,24 +70,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	float TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
+
 protected:
-
-	/** The player's maximum health. This is the highest that their health can be, and the value that their health starts at when spawned.*/
-	UPROPERTY(EditDefaultsOnly, Category = "Health")
-	float MaxHealth;
-
-	/** The player's current health. When reduced to 0, they are considered dead.*/
-	UPROPERTY(ReplicatedUsing = OnRep_CurrentHealth)
-	float CurrentHealth;
-
-	/** RepNotify for changes made to current health.*/
-	UFUNCTION()
-	void OnRep_CurrentHealth();
-
-	/** Response to health being updated. Called on the server immediately after modification, and on clients in response to a RepNotify*/
-	void OnHealthUpdate();
-
-
 
 	/** Resets HMD orientation in VR. */
 	void OnResetVR();
@@ -105,6 +108,7 @@ protected:
 
 	//These are the variables and functions we will be using to fire our projectiles. HandleFire is the only RPC we will implement in this tutorial, and it will be responsible for spawning projectiles on the server. Because it has the Server specifier, any attempt to call it on a client will result in the call being directed over the network to the authoritative Character on the server instead. Because HandleFire has the Reliable specifier as well, it is placed into a queue for reliable RPCs whenever it gets called, and it is removed from the queue when the server successfully receives it.This guarnatees that the server will definitely receive this function call.However, the queue for reliable RPCs can overflow if too many RPCs are placed into it at once without removing them, and if it does then it will force the user to disconnect.Therefore, we need to be cautious in how often we allow players to call this function.
 
+	/** The type of projectile the character is going to fire.*/
 	UPROPERTY(EditDefaultsOnly, Category = "Gameplay|Projectile")
 	TSubclassOf<class AThirdPersonMPProjectile> ProjectileClass;
 
