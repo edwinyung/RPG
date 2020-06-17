@@ -92,6 +92,10 @@ void AThirdPersonMPCharacter::SetupPlayerInputComponent(class UInputComponent* P
 
 	// VR headset functionality
 	PlayerInputComponent->BindAction("ResetVR", IE_Pressed, this, &AThirdPersonMPCharacter::OnResetVR);
+
+	// Handle firing projectiles
+	//This binds StartFire to the Fire Input Action we created in the first step of this section, enabling the user to activate it.
+	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &AThirdPersonMPCharacter::StartFire);
 }
 
 
@@ -219,4 +223,33 @@ float AThirdPersonMPCharacter::TakeDamage(float DamageTaken, struct FDamageEvent
 	float damageApplied = CurrentHealth - DamageTaken;
 	SetCurrentHealth(damageApplied);
 	return damageApplied;
+}
+
+
+void AThirdPersonMPCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
+	{
+		bIsFiringWeapon = true;
+		UWorld* World = GetWorld();
+		World->GetTimerManager().SetTimer(FiringTimer, this, &AThirdPersonMPCharacter::StopFire, FireRate, false);
+		HandleFire();
+	}
+}
+
+void AThirdPersonMPCharacter::StopFire()
+{
+	bIsFiringWeapon = false;
+}
+
+void AThirdPersonMPCharacter::HandleFire_Implementation()
+{
+	FVector spawnLocation = GetActorLocation() + (GetControlRotation().Vector() * 100.0f) + (GetActorUpVector() * 50.0f);
+	FRotator spawnRotation = GetControlRotation();
+
+	FActorSpawnParameters spawnParameters;
+	spawnParameters.Instigator = Instigator;
+	spawnParameters.Owner = this;
+
+	AThirdPersonMPProjectile* spawnedProjectile = GetWorld()->SpawnActor<AThirdPersonMPProjectile>(spawnLocation, spawnRotation, spawnParameters);
 }
