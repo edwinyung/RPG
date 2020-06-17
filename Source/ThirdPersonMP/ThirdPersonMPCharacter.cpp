@@ -9,6 +9,12 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
 
+//These provide required functionality for variable replication as well as access to the AddOnscreenDebugMessage function in GEngine, which we will use to output messages to the screen.
+#include "Net/UnrealNetwork.h"
+#include "Engine/Engine.h"
+
+//This will enable our Character class to recognize the projectile's type and spawn it.
+#include "ThirdPersonMPProjectile.h"
 //////////////////////////////////////////////////////////////////////////
 // AThirdPersonMPCharacter
 
@@ -45,6 +51,18 @@ AThirdPersonMPCharacter::AThirdPersonMPCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named MyCharacter (to avoid direct content references in C++)
+
+	//Initialize the player's Health. Any time a new copy of this Character is created, its current health will be set to its maximum health value.
+	MaxHealth = 100.0f;
+	CurrentHealth = MaxHealth;
+
+
+	//These will initialize the variables necessary to handle firing the projectile.
+	//Initialize projectile class
+	ProjectileClass = AThirdPersonMPProjectile::StaticClass();
+	//Initialize fire rate
+	FireRate = 0.25f;
+	bIsFiringWeapon = false;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -131,4 +149,74 @@ void AThirdPersonMPCharacter::MoveRight(float Value)
 		// add movement in that direction
 		AddMovementInput(Direction, Value);
 	}
+}
+
+//////////////////////////////////////////////////////////////////////////
+// Replicated Properties
+
+
+//The GetLifetimeReplicatedProps function is responsible for replicating any properties we designate with the Replicated specifier, and enables us to configure how a property will replicate. Here we are using the most basic implementation for CurrentHealth. If at any time you add more properties that need to be replicated, you must add them to this function as well.
+
+//You must call the Super version of GetLifetimeReplicatedProps, or inherited properties from your Actor's parent class will not replicate, even if the parent class designates them as being replicated.
+void AThirdPersonMPCharacter::GetLifetimeReplicatedProps(TArray <FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AThirdPersonMPCharacter, CurrentHealth);
+}
+
+//We will be using this function to perform updates in response to changes to the player's CurrentHealth. Currently its functionality is limited to onscreen debug messages, but additional functionality could be added, like an OnDeath function that is called on all machines in order to trigger a death animation. Note that OnHealthUpdate is not replicated, and we will need to manually call it on all devices.
+void AThirdPersonMPCharacter::OnHealthUpdate()
+{
+	//Client-specific functionality
+	if (IsLocallyControlled())
+	{
+		FString healthMessage = FString::Printf(TEXT("You now have %f health remaining."), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+
+		if (CurrentHealth <= 0)
+		{
+			FString deathMessage = FString::Printf(TEXT("You have been killed."));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, deathMessage);
+		}
+	}
+
+	//Server-specific functionality
+	if (Role == ROLE_Authority)
+	{
+		FString healthMessage = FString::Printf(TEXT("%s now has %f health remaining."), *GetFName().ToString(), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+	}
+
+	//Functions that occur on all machines. 
+	/*
+		Any special functionality that should occur as a result of damage or death should be placed here.
+	*/
+}
+
+//Variables replicate any time their value changes rather than constantly replicating, and RepNotifies run any time the client successfully receives a replicated value for a variable. Therefore, any time we change the player's CurrentHealth on the server, we would expect OnRep_CurrentHealth to run on each connected client. This makes OnRep_CurrentHealth the ideal place to call OnHealthUpdate on clients' machines.
+void AThirdPersonMPCharacter::OnRep_CurrentHealth()
+{
+	OnHealthUpdate();
+}
+
+
+//SetCurrentHealth provides a controlled means of modifying the player's CurrentHealth from outside of AThirdPersonMPCharacter. It is not a replicated function, but by checking that the Network Role of the Actor is ROLE_Authority, we restrict this function to execute only if it is called on the server that is hosting the game. It clamps CurrentHealth to values between 0 and the player's MaxHealth, making it impossible to set CurrentHealth to an invalid value, and it also calls OnHealthUpdate to ensure that the server and clients both have parallel calls to this function. This is necessary because the server will not receive the RepNotify.
+
+//While "setter" functions like this are not necessary for every variable, they are preferable for sensitive gameplay variables that change frequently during play, especially if they can be modified by many different sources.This is a best - practice for single - player and multiplayer games alike, as it makes live changes to these variables more consistent, easier to debug, and easier to extend with new functionality.
+void AThirdPersonMPCharacter::SetCurrentHealth(float healthValue)
+{
+	if (Role == ROLE_Authority)
+	{
+		CurrentHealth = FMath::Clamp(healthValue, 0.f, MaxHealth);
+		OnHealthUpdate();
+	}
+}
+
+
+//The built - in functions for applying damage to Actors call the basic TakeDamage function for that Actor.In this case we implement a simple health deduction using SetCurrentHealth.
+float AThirdPersonMPCharacter::TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	float damageApplied = CurrentHealth - DamageTaken;
+	SetCurrentHealth(damageApplied);
+	return damageApplied;
 }
